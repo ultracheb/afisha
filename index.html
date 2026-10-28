@@ -137,6 +137,13 @@ textarea.field{min-height:70px;resize:vertical}
     <input class="field" id="sGist" autocomplete="off" data-tp="gistPh">
     <p class="hint" data-t="syncHint"></p>
     <p class="hint" id="syncStatus"></p>
+    <label data-t="backup"></label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn small" id="exportBtn" data-t="exportBtn"></button>
+      <button type="button" class="btn small" id="importBtn" data-t="importBtn"></button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+    <p class="hint" data-t="backupHint"></p>
     <div class="sheet-actions">
       <button type="button" class="btn small" id="copyLinkBtn" data-t="copyLink"></button>
       <span class="spacer"></span>
@@ -161,7 +168,8 @@ const I18N = {
     open:'Адкрыць', toCal:'📅 У каляндар', addDate:'📅 Дадаць дату', going:'Ідзём', goingOn:'✓ Ідзём', edit:'✎',
     google:'Google', apple:'Apple / .ics',
     confirmDel:'Выдаліць гэты івент?', saved:'Захавана', deleted:'Выдалена',
-    syncTitle:'Сінхранізацыя', gistPh:'пуста = стварыць новы',
+    syncTitle:'Налады',
+    backup:'Рэзервовая копія', exportBtn:'⬇️ Экспарт', importBtn:'⬆️ Імпарт', backupHint:'Экспарт спампуе ўсе івенты ў .json. Імпарт дадае івенты з файла да існуючых, нічога не сцірае.', imported:'Імпартавана івентаў: ', importErr:'Не атрымалася прачытаць файл', gistPh:'пуста = стварыць новы',
     syncHint:'Тое самае, што ў Шуфлядцы: токен з правам <code>gist</code>. Калі Gist ID пусты, створыцца новы сакрэтны gist. На другім тэлефоне проста адкрый спасылку з кнопкі ніжэй.',
     copyLink:'🔗 Спасылка для другога тэлефона', linkCopied:'Спасылка скапіявана',
     syncOk:'Сінхранізавана', syncErr:'Памылка сінхранізацыі', syncOff:'Сінхранізацыя не наладжана',
@@ -181,7 +189,8 @@ const I18N = {
     open:'Відкрити', toCal:'📅 У календар', addDate:'📅 Додати дату', going:'Йдемо', goingOn:'✓ Йдемо', edit:'✎',
     google:'Google', apple:'Apple / .ics',
     confirmDel:'Видалити цей івент?', saved:'Збережено', deleted:'Видалено',
-    syncTitle:'Синхронізація', gistPh:'порожньо = створити новий',
+    syncTitle:'Налаштування',
+    backup:'Резервна копія', exportBtn:'⬇️ Експорт', importBtn:'⬆️ Імпорт', backupHint:'Експорт завантажить усі івенти в .json. Імпорт додає івенти з файлу до наявних, нічого не стирає.', imported:'Імпортовано івентів: ', importErr:'Не вдалося прочитати файл', gistPh:'порожньо = створити новий',
     syncHint:'Те саме, що в Шуфлядці: токен з правом <code>gist</code>. Якщо Gist ID порожній, створиться новий секретний gist. На другому телефоні просто відкрий посилання з кнопки нижче.',
     copyLink:'🔗 Посилання для другого телефона', linkCopied:'Посилання скопійовано',
     syncOk:'Синхронізовано', syncErr:'Помилка синхронізації', syncOff:'Синхронізацію не налаштовано',
@@ -497,6 +506,26 @@ $('copyLinkBtn').onclick=async()=>{
   if(!cfg.token||!cfg.gist){ toast(t('syncOff')); return; }
   const link=location.origin+location.pathname+'#sync='+btoa(JSON.stringify(cfg));
   try{ await navigator.clipboard.writeText(link); toast(t('linkCopied')); }catch(e){ prompt('',link); }
+};
+
+/* ---------- export / import ---------- */
+$('exportBtn').onclick=()=>{
+  const data=JSON.stringify({app:'afisha',exported:new Date().toISOString(),events:events.filter(e=>!e.deleted)},null,1);
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));
+  a.download='afisha-'+todayStr()+'.json'; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
+};
+$('importBtn').onclick=()=>$('importFile').click();
+$('importFile').onchange=async ev=>{
+  const f=ev.target.files[0]; ev.target.value=''; if(!f) return;
+  try{
+    const j=JSON.parse(await f.text());
+    const list=(Array.isArray(j)?j:j.events||[]).filter(e=>e && (e.url||e.title));
+    const before=new Set(events.map(e=>e.id));
+    const incoming=list.map(e=>({id:e.id||uid(),url:e.url||'',title:e.title||'',date:e.date||'',time:e.time||'',place:e.place||'',note:e.note||'',going:!!e.going,created:e.created||now(),updated:e.updated||now(),...(e.deleted?{deleted:true}:{})}));
+    events=merge(events,incoming); persist(); render();
+    toast(t('imported')+incoming.filter(e=>!before.has(e.id)&&!e.deleted).length);
+  }catch(e){ console.error(e); toast(t('importErr')); }
 };
 
 /* ---------- boot: #sync=… and ?url=/?text= (для Shortcuts / share) ---------- */
