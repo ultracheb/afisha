@@ -471,7 +471,7 @@ function cleanSocial(desc){
   return (desc||'').replace(/^[\s\S]{0,160}?\bon [A-Z][a-z]+ \d{1,2}, 20\d\d:\s*/,'').replace(/^["“”]|["“”]$/g,'').trim();
 }
 function cleanTitle(t){
-  return (t||'').replace(/\s*[•|]\s*Instagram.*$/i,'').replace(/\s+on Instagram.*$/i,'').replace(/\s*\|\s*Facebook$/i,'').trim();
+  return (t||'').replace(/\s*\/\s*Obscure promotion$/i,'').replace(/\s*[|–-]\s*(GoOut|Ticketmaster|Live ?Nation|Karabas|Kontramarka)\b.*$/i,'').replace(/\s*[•|]\s*Instagram.*$/i,'').replace(/\s+on Instagram.*$/i,'').replace(/\s*\|\s*Facebook$/i,'').trim();
 }
 async function viaMicrolink(url){
   const r=await fetch('https://api.microlink.io/?url='+encodeURIComponent(url),{signal:AbortSignal.timeout(20000)});
