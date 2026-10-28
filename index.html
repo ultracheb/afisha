@@ -79,6 +79,8 @@ textarea.field{min-height:70px;resize:vertical}
 .row{display:flex;gap:8px}.row>div{flex:1;min-width:0}
 .sheet-actions{display:flex;gap:8px;margin-top:16px}
 .sheet-actions .spacer{flex:1}
+.fetch-row{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:13px;color:var(--muted)}
+#fetchStatus.ok{color:var(--going)}
 .hint{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.45}
 .hint code{background:var(--soft);padding:1px 5px;border-radius:5px;font-size:12px;word-break:break-all}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
@@ -108,6 +110,7 @@ textarea.field{min-height:70px;resize:vertical}
     <h2 id="editTitle"></h2>
     <label data-t="fLink"></label>
     <input class="field" id="fUrl" inputmode="url" autocomplete="off">
+    <div class="fetch-row"><button type="button" class="btn small" id="fetchBtn" data-t="fetchBtn"></button><span id="fetchStatus"></span></div>
     <label data-t="fTitle"></label>
     <input class="field" id="fTitle" autocomplete="off">
     <div class="row">
@@ -168,6 +171,7 @@ const I18N = {
     open:'Адкрыць', toCal:'📅 У каляндар', addDate:'📅 Дадаць дату', going:'Ідзём', goingOn:'✓ Ідзём', edit:'✎',
     google:'Google', apple:'Apple / .ics',
     confirmDel:'Выдаліць гэты івент?', saved:'Захавана', deleted:'Выдалена',
+    fetchBtn:'🔎 Падцягнуць з сайта', fetching:'⏳ Шукаю дату на старонцы…', fetchFound:'✓ Знайшоў', fetchNoDate:'Даты на старонцы не відаць, упішы рукамі', fetchErr:'Старонка не адкрылася, упішы рукамі',
     syncTitle:'Налады',
     backup:'Рэзервовая копія', exportBtn:'⬇️ Экспарт', importBtn:'⬆️ Імпарт', backupHint:'Экспарт спампуе ўсе івенты ў .json. Імпарт дадае івенты з файла да існуючых, нічога не сцірае.', imported:'Імпартавана івентаў: ', importErr:'Не атрымалася прачытаць файл', gistPh:'пуста = стварыць новы',
     syncHint:'Тое самае, што ў Шуфлядцы: токен з правам <code>gist</code>. Калі Gist ID пусты, створыцца новы сакрэтны gist. На другім тэлефоне проста адкрый спасылку з кнопкі ніжэй.',
@@ -189,6 +193,7 @@ const I18N = {
     open:'Відкрити', toCal:'📅 У календар', addDate:'📅 Додати дату', going:'Йдемо', goingOn:'✓ Йдемо', edit:'✎',
     google:'Google', apple:'Apple / .ics',
     confirmDel:'Видалити цей івент?', saved:'Збережено', deleted:'Видалено',
+    fetchBtn:'🔎 Підтягнути з сайту', fetching:'⏳ Шукаю дату на сторінці…', fetchFound:'✓ Знайшов', fetchNoDate:'Дати на сторінці не видно, впиши вручну', fetchErr:'Сторінка не відкрилася, впиши вручну',
     syncTitle:'Налаштування',
     backup:'Резервна копія', exportBtn:'⬇️ Експорт', importBtn:'⬆️ Імпорт', backupHint:'Експорт завантажить усі івенти в .json. Імпорт додає івенти з файлу до наявних, нічого не стирає.', imported:'Імпортовано івентів: ', importErr:'Не вдалося прочитати файл', gistPh:'порожньо = створити новий',
     syncHint:'Те саме, що в Шуфлядці: токен з правом <code>gist</code>. Якщо Gist ID порожній, створиться новий секретний gist. На другому телефоні просто відкрий посилання з кнопки нижче.',
@@ -222,6 +227,8 @@ function persist(){ store.set('afisha.events', events); schedulePush(); }
 const MONTH_WORDS = {
   // cz (genitive + nominative), en, be, uk, ru
   ledna:1,leden:1,února:2,unora:2,únor:2,března:3,brezna:3,dubna:4,duben:4,května:5,kvetna:5,června:6,cervna:6,července:7,cervence:7,srpna:8,září:9,zari:9,října:10,rijna:10,listopadu:11,prosince:12,
+  led:1,úno:2,bře:3,dub:4,kvě:5,čvn:6,čvc:7,srp:8,zář:9,říj:10,lis:11,pro:12,
+  лют:2,бер:3,кві:4,тра:5,чер:6,лип:7,сер:8,вер:9,жов:10,лис:11,гру:12,січ:1,
   jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,sept:9,oct:10,nov:11,dec:12,
   january:1,february:2,march:3,april:4,june:6,july:7,august:8,september:9,october:10,november:11,december:12,
   студзеня:1,лютага:2,сакавіка:3,красавіка:4,траўня:5,чэрвеня:6,ліпеня:7,жніўня:8,верасня:9,кастрычніка:10,лістапада:11,снежня:12,
@@ -395,6 +402,109 @@ function render(){
   $('list').innerHTML=h;
 }
 
+/* ---------- auto-fill from link ---------- */
+function findDateIn(text){
+  if(!text) return {date:'',time:''};
+  const tdy=todayStr(); const found=[];
+  const push=(idx,y,m,d,len)=>{ if(m>=1&&m<=12&&validDate(y,m,d)) found.push({idx,len,date:ymd(y,m,d)}); };
+  let m;
+  const r1=/\b(20\d\d)-(\d{2})-(\d{2})/g; while((m=r1.exec(text))) push(m.index,+m[1],+m[2],+m[3],m[0].length);
+  const r2=/(?<![\d.:\/])(\d{1,2})\s*[.\/]\s*(\d{1,2})\s*[.\/]\s*(20\d\d)(?!\d)/g; while((m=r2.exec(text))) push(m.index,+m[3],+m[2],+m[1],m[0].length);
+  const r2b=/(?<![\d.:\/])(\d{1,2})\.?\s*[-–]\s*\d{1,2}\.?\s*[.\/]\s*(\d{1,2})\s*[.\/]\s*(20\d\d)(?!\d)/g; while((m=r2b.exec(text))) push(m.index,+m[3],+m[2],+m[1],m[0].length);
+  const r3=/(?<![\d.:\/])(\d{1,2})\.\s?(\d{1,2})\.(?!\s?\d)/g; while((m=r3.exec(text))){ const d=+m[1],mo=+m[2]; if(mo<=12) push(m.index,guessYear(mo,d),mo,d,m[0].length); }
+  const r4=/(\d{1,2})\.?\s+([a-zA-Zа-яА-ЯіІўЎєЄїЇáéíóúůýčďěňřšťžÁČŘŠŽ]+)\.?,?(?:\s+(20\d\d))?/g;
+  while((m=r4.exec(text))){ const w=m[2].toLowerCase(), mo=MONTH_WORDS[w];
+    if(mo && w.length<=3 && !/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)$/.test(w) && !m[3]) continue; // "3 pro děti" ≠ 3 снежня
+    if(mo){ const d=+m[1]; push(m.index,m[3]?+m[3]:guessYear(mo,d),mo,d,m[0].length); } }
+  const r5=/\b([A-Z][a-z]{2,8})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d\d)/g;
+  while((m=r5.exec(text))){ const mo=MONTH_WORDS[m[1].toLowerCase()]; if(mo) push(m.index,+m[3],mo,+m[2],m[0].length); }
+  if(!found.length) return {date:'',time:''};
+  found.sort((a,b)=>a.idx-b.idx);
+  const pick=found.find(f=>f.date>=tdy)||found[0];
+  const after=text.slice(pick.idx+pick.len, pick.idx+pick.len+60);
+  const before=text.slice(Math.max(0,pick.idx-30), pick.idx);
+  const TRE=/\b([01]?\d|2[0-3])(?::([0-5]\d)\b|\.([0-5]\d)\s?(?:h|hod|год)(?![\wа-я]))/;
+  const tm=after.match(TRE)||before.match(TRE);
+  if(tm) return {date:pick.date, time:pad(+tm[1])+':'+(tm[2]||tm[3])};
+  const ap=after.match(/\b(1[0-2]|0?\d)(?::([0-5]\d))?\s?([AaPp])\.?[Mm]\b/);
+  if(ap){ let h=+ap[1]%12; if(/p/i.test(ap[3])) h+=12; return {date:pick.date, time:pad(h)+':'+(ap[2]||'00')}; }
+  return {date:pick.date, time:''};
+}
+function decodeEnt(s){ const el=document.createElement('textarea'); el.innerHTML=s||''; return el.value; }
+function metaTag(h,prop){
+  const m=h.match(new RegExp('<meta[^>]+(?:property|name)=["\']'+prop+'["\'][^>]*content=["\']([^"\']*)','i'))
+       ||h.match(new RegExp('<meta[^>]+content=["\']([^"\']*)["\'][^>]*(?:property|name)=["\']'+prop+'["\']','i'));
+  return m?decodeEnt(m[1]).trim():'';
+}
+function ldEvent(h){
+  const blocks=[...h.matchAll(/<script[^>]*ld\+json[^>]*>([\s\S]*?)<\/script>/gi)];
+  const flat=x=>Array.isArray(x)?x.flatMap(flat):(x&&x['@graph']?flat(x['@graph']):[x]);
+  for(const b of blocks){ try{
+    const ev=flat(JSON.parse(b[1].trim())).find(x=>x&&/Event$/.test([].concat(x['@type']).join(' ')) && x.startDate);
+    if(ev) return ev;
+  }catch(e){} }
+  return null;
+}
+function fromLd(ev){
+  const out={};
+  const sd=String(ev.startDate); const dm=sd.match(/(20\d\d)-(\d\d)-(\d\d)/);
+  if(dm){ out.date=dm[0];
+    const tm=sd.match(/T(\d\d):(\d\d)/); if(tm && !(tm[1]==='00'&&tm[2]==='00')) out.time=tm[1]+':'+tm[2]; }
+  else { // GoOut дае "Wed Oct 28 2026 19:00:01 GMT+0000" → пераводзім у пражскі час
+    const d=new Date(sd);
+    if(!isNaN(d)){ const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).map(x=>[x.type,x.value]));
+      out.date=p.year+'-'+p.month+'-'+p.day; if(!(p.hour==='00'&&p.minute==='00')) out.time=p.hour+':'+p.minute; } }
+  if(ev.name) out.title=decodeEnt(String(ev.name));
+  const loc=[].concat(ev.location||[])[0];
+  if(loc){ const a=loc.address; const city=a&&typeof a==='object'?a.addressLocality:'';
+    out.place=[loc.name, typeof a==='string'?a:''].filter(Boolean).join(', ') || city || ''; out.place=decodeEnt(out.place); }
+  const off=[].concat(ev.offers||[])[0];
+  if(off){ const p=off.price||off.lowPrice; if(p && +p>0) out.price=(+p)+' '+(off.priceCurrency||''); }
+  return out;
+}
+function htmlText(h){
+  return decodeEnt(h.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi,' ')
+    .replace(/<\/(p|div|li|h\d|br|tr)>/gi,'\n').replace(/<[^>]+>/g,' ')).replace(/[ \t]+/g,' ').replace(/\n\s*/g,'\n');
+}
+function cleanSocial(desc){
+  // "103 likes, 3 comments - user on August 29, 2026: "caption""
+  return (desc||'').replace(/^[\s\S]{0,160}?\bon [A-Z][a-z]+ \d{1,2}, 20\d\d:\s*/,'').replace(/^["“”]|["“”]$/g,'').trim();
+}
+function cleanTitle(t){
+  return (t||'').replace(/\s*[•|]\s*Instagram.*$/i,'').replace(/\s+on Instagram.*$/i,'').replace(/\s*\|\s*Facebook$/i,'').trim();
+}
+async function viaMicrolink(url){
+  const r=await fetch('https://api.microlink.io/?url='+encodeURIComponent(url),{signal:AbortSignal.timeout(20000)});
+  const j=await r.json(); if(j.status!=='success') throw new Error('microlink '+(j.code||j.status));
+  const d=j.data||{}; const desc=cleanSocial(d.description||'');
+  const out={...findDateIn((d.title||'')+'\n'+desc)};
+  let title=cleanTitle(d.title||'');
+  const ig=title.match(/^(.*?)\s*\(@[\w.]+\)/); if(ig) title=ig[1]||title;
+  out.title=title; out.text=desc; return out;
+}
+async function viaJina(url){
+  const r=await fetch('https://r.jina.ai/'+url,{headers:{'X-Return-Format':'html'},signal:AbortSignal.timeout(25000)});
+  if(!r.ok) throw new Error('jina '+r.status);
+  const h=await r.text(); const ev=ldEvent(h);
+  if(ev){ const o=fromLd(ev); if(!o.time){ const ft=findDateIn(htmlText(h).slice(0,6000)); if(ft.date===o.date) o.time=ft.time; } return o; }
+  const title=metaTag(h,'og:title')||decodeEnt((h.match(/<title[^>]*>([^<]*)/i)||[])[1]||'');
+  const desc=metaTag(h,'og:description')||metaTag(h,'description');
+  const body=htmlText(h);
+  let o=findDateIn(title+'\n'+desc); if(!o.date) o=findDateIn(body.slice(0,8000));
+  const pr=body.match(/(\d[\d\s]{1,6}(?:[.,]\d{2})?)\s?(Kč|CZK|€|EUR|eur|грн|UAH)/);
+  return {...o, title:cleanTitle(title), text:desc, price:pr?pr[1].replace(/[.,]00$/,'').replace(/\s/g,'')+' '+pr[2]:''};
+}
+async function fetchMeta(url){
+  const h=(()=>{try{return new URL(url).hostname}catch(e){return ''}})();
+  const social=/(instagram\.com|facebook\.com|fb\.me|fb\.com|ticketmaster)/.test(h);
+  const order=social?[viaMicrolink,viaJina]:[viaJina,viaMicrolink];
+  let best=null, lastErr;
+  for(const fn of order){
+    try{ const o=await fn(url); if(o.date) return o; best=best||o; }catch(e){ lastErr=e; }
+  }
+  if(best) return best; throw lastErr||new Error('no data');
+}
+
 /* ---------- edit sheet ---------- */
 let editingId=null;
 function openEdit(e, focus){
@@ -403,18 +513,63 @@ function openEdit(e, focus){
   $('fUrl').value=e?.url||''; $('fTitle').value=e?.title||''; $('fDate').value=e?.date||'';
   $('fTime').value=e?.time||''; $('fPlace').value=e?.place||''; $('fNote').value=e?.note||'';
   $('delBtn').style.visibility = editingId?'visible':'hidden';
+  $('fTitle').dataset.auto = (!e?.title || (e?.url && e.title===titleFromUrl(e.url))) ? '1':'0';
+  setFetchStatus('');
+  fetchJob=null;
   $('editOv').classList.add('open');
+  if(!editingId && e?.url && !e?.date) autoFill(false);
   setTimeout(()=>{ (focus==='date'?$('fDate'):$('fTitle')).focus(); },50);
 }
 function closeEdit(){ $('editOv').classList.remove('open'); editingId=null; }
+function normUrl(u){ u=(u||'').trim(); if(u && !/^https?:\/\//i.test(u) && /\./.test(u)) u='https://'+u; return u; }
+function setFetchStatus(txt,cls){ const el=$('fetchStatus'); el.textContent=txt; el.className=cls||''; }
+let fetchJob=null;
+function applyMeta(o,target,force){
+  // target: {get(k), set(k,v), autoTitle}
+  const filled=[];
+  if(o.date && (force || !target.get('date'))){ target.set('date',o.date); filled.push('date');
+    if(o.time) target.set('time',o.time); }
+  else if(o.time && !target.get('time') && target.get('date')===o.date) target.set('time',o.time);
+  if(o.title && target.autoTitle()) target.set('title',o.title.length>90?o.title.slice(0,90)+'…':o.title);
+  if(o.place && !target.get('place')) target.set('place',o.place);
+  if(o.price && !target.get('note')) target.set('note',o.price);
+  return filled;
+}
+async function autoFill(force){
+  const url=normUrl($('fUrl').value); if(!/^https?:/.test(url)) return;
+  const job={url, savedId:null}; fetchJob=job;
+  setFetchStatus(t('fetching')); $('fetchBtn').disabled=true;
+  let o=null, err=null;
+  try{ o=await fetchMeta(url); }catch(e){ err=e; console.warn(e); }
+  if(fetchJob!==job) return;
+  $('fetchBtn').disabled=false; fetchJob=null;
+  if(job.savedId){ // форму ўжо закрылі і захавалі
+    const ev=events.find(x=>x.id===job.savedId);
+    if(ev && o){ const autoT=!ev.title || ev.title===titleFromUrl(ev.url);
+      applyMeta(o,{get:k=>ev[k],set:(k,v)=>{ev[k]=v},autoTitle:()=>autoT});
+      ev.updated=now(); persist(); render(); }
+    return;
+  }
+  if(!o){ setFetchStatus(t('fetchErr')); return; }
+  const f={date:'fDate',time:'fTime',title:'fTitle',place:'fPlace',note:'fNote'};
+  applyMeta(o,{get:k=>$(f[k]).value,set:(k,v)=>{$(f[k]).value=v},autoTitle:()=>$('fTitle').dataset.auto==='1'||!$('fTitle').value},force);
+  if(o.date){ const [y,m,d]=o.date.split('-').map(Number);
+    setFetchStatus(t('fetchFound')+': '+d+' '+t('mShort')[m-1]+(y!==new Date().getFullYear()?' '+y:'')+(o.time?' · '+o.time:''),'ok'); }
+  else setFetchStatus(t('fetchNoDate'));
+}
+$('fetchBtn').onclick=()=>autoFill(true);
+$('fUrl').addEventListener('change',()=>{ if(!$('fDate').value) autoFill(false); });
+$('fTitle').addEventListener('input',()=>{ $('fTitle').dataset.auto='0'; });
 $('editForm').addEventListener('submit',ev=>{
   ev.preventDefault();
   let url=$('fUrl').value.trim(); if(url && !/^https?:\/\//i.test(url) && /\./.test(url)) url='https://'+url;
   const data={url, title:$('fTitle').value.trim() || (url?titleFromUrl(url):''), date:$('fDate').value, time:$('fTime').value,
     place:$('fPlace').value.trim(), note:$('fNote').value.trim(), updated:now()};
   if(!data.url && !data.title) return;
+  let id=editingId;
   if(editingId){ Object.assign(events.find(x=>x.id===editingId), data); }
-  else events.push({id:uid(), created:now(), going:false, ...data});
+  else { id=uid(); events.push({id, created:now(), going:false, ...data}); }
+  if(fetchJob && fetchJob.url===url) fetchJob.savedId=id;
   persist(); closeEdit(); render(); toast(t('saved'));
 });
 $('cancelBtn').onclick=closeEdit;
